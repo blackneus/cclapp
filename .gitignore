@@ -1,0 +1,16 @@
+# Env y secretos
+.env
+secrets/
+
+# Build artifacts
+frontend/dist/
+frontend/node_modules/
+backend/tmp/
+
+# Go
+backend/*.exe
+backend/api
+
+# OS
+.DS_Store
+*.swp

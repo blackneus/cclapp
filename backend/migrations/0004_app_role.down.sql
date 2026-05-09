@@ -1,0 +1,4 @@
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM licreamo_app;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM licreamo_app;
+REVOKE USAGE ON SCHEMA public FROM licreamo_app;
+DROP ROLE IF EXISTS licreamo_app;
