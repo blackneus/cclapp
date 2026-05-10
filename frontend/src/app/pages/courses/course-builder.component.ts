@@ -9,6 +9,15 @@ import { CoursesService, Course } from '../../core/services/courses.service';
 import { ModulesService, Module } from '../../core/services/modules.service';
 import { LessonsService, Lesson, Attachment } from '../../core/services/lessons.service';
 import { DrivePickerService } from '../../core/services/drive-picker.service';
+import { QuizService } from '../../core/services/quiz.service';
+import {
+  QuizDraft, emptyQuizDraft,
+  addQuestion as draftAddQuestion, removeQuestion as draftRemoveQuestion,
+  addOption as draftAddOption, removeOption as draftRemoveOption,
+  setCorrect as draftSetCorrect,
+} from '../../core/utils/quiz-draft';
+import { uploadToDrive, driveMakePublic } from '../../core/utils/drive-upload';
+import { ToastService } from '../../core/ui/toast.service';
 import { environment } from '../../../environments/environment';
 
 interface BuilderLesson extends Lesson {
@@ -29,6 +38,7 @@ interface BuilderModule extends Module {
       <div class="builder-topbar">
         <a [routerLink]="['/courses']" class="btn ghost sm">← Volver</a>
         <span class="builder-title">{{ course()?.title ?? 'Cargando…' }}</span>
+        <a [routerLink]="['/courses', courseId, 'import']" class="btn primary sm">📋 Cargar plantilla</a>
         <a [routerLink]="['/courses', courseId, 'learn']" class="btn ghost sm">Vista previa →</a>
       </div>
 
@@ -62,7 +72,9 @@ interface BuilderModule extends Module {
                       </div>
                     }
                   </div>
-                  <button class="btn ghost sm add-lesson-btn" (click)="addLesson(mod)">+ Clase</button>
+                  <a class="btn ghost sm add-lesson-btn"
+                     [routerLink]="['/courses', courseId, 'lessons', 'new']"
+                     [queryParams]="{ module: mod.id }">+ Clase</a>
                 }
               </div>
             }
@@ -71,87 +83,9 @@ interface BuilderModule extends Module {
           <button class="btn primary sm add-module-btn" (click)="addModule()">+ Módulo</button>
         </div>
 
-        <!-- Panel derecho: form de lección seleccionada -->
+        <!-- Panel derecho: solo edición de módulo o mensaje vacío -->
         <div class="builder-right">
-          @if (selectedLesson()) {
-            <div class="lesson-form">
-              <h3>{{ selectedLesson()!.id ? 'Editar clase' : 'Nueva clase' }}</h3>
-
-              <div class="field">
-                <label>Título *</label>
-                <input class="input" [(ngModel)]="lessonForm.title" placeholder="Nombre de la clase" />
-              </div>
-
-              <div class="field">
-                <label>Descripción</label>
-                <textarea class="textarea" [(ngModel)]="lessonForm.description" rows="3"
-                          placeholder="Descripción de la clase"></textarea>
-              </div>
-
-              <div class="field">
-                <label>Video</label>
-                <div class="drive-field-row">
-                  <select class="select sm" [(ngModel)]="videoSource">
-                    <option value="drive">Google Drive</option>
-                    <option value="upload">Subir archivo</option>
-                  </select>
-                  @if (videoSource === 'drive') {
-                    <button class="btn ghost sm" (click)="pickVideo()" [disabled]="saving()">
-                      🎬 {{ lessonForm.video_storage_ref ? 'Cambiar video' : 'Seleccionar de Drive' }}
-                    </button>
-                    @if (lessonForm.video_storage_ref) {
-                      <span class="file-name muted">{{ lessonForm._videoName }}</span>
-                    }
-                  } @else {
-                    <input type="file" accept="video/*" class="input sm" (change)="uploadVideo($event)"
-                           [disabled]="uploading()" />
-                    @if (uploading()) { <span class="muted">Subiendo…</span> }
-                    @if (lessonForm.video_storage_ref) { <span class="muted file-name">✓ Guardado en Drive</span> }
-                  }
-                </div>
-              </div>
-
-              <div class="field">
-                <label>Duración (segundos)</label>
-                <input class="input" type="number" min="0" [(ngModel)]="lessonForm.duration_seconds" />
-              </div>
-
-              <div class="field">
-                <label>Archivos adjuntos (PDFs)</label>
-                <div class="attachments-list">
-                  @for (att of lessonForm.attachments; track att.id) {
-                    <div class="attachment-row">
-                      <span>📄 {{ att.name }}</span>
-                      <button class="btn icon sm danger" (click)="removeAttachment(att)"
-                              [disabled]="saving()">✕</button>
-                    </div>
-                  }
-                </div>
-                <div class="drive-field-row" style="margin-top:8px">
-                  <button class="btn ghost sm" (click)="pickPdf()" [disabled]="saving()">
-                    + Agregar PDF (Drive)
-                  </button>
-                  <span style="margin:0 8px">o</span>
-                  <input type="file" accept="application/pdf" class="input sm"
-                         (change)="uploadPdf($event)" [disabled]="uploading()" />
-                  @if (uploading()) { <span class="muted">Subiendo…</span> }
-                </div>
-              </div>
-
-              @if (saveError()) { <p class="login-error">{{ saveError() }}</p> }
-
-              <div style="display:flex;gap:8px;margin-top:16px">
-                <button class="btn primary" (click)="saveLesson()" [disabled]="saving()">
-                  {{ saving() ? 'Guardando…' : 'Guardar clase' }}
-                </button>
-                <button class="btn ghost" (click)="selectedLesson.set(null)">Cancelar</button>
-                @if (selectedLesson()!.id) {
-                  <button class="btn ghost danger" (click)="deleteLesson()" style="margin-left:auto"
-                          [disabled]="saving()">Eliminar</button>
-                }
-              </div>
-            </div>
-          } @else if (editingModule()) {
+          @if (editingModule()) {
             <div class="lesson-form">
               <h3>{{ editingModule()!.id ? 'Editar módulo' : 'Nuevo módulo' }}</h3>
               <div class="field">
@@ -188,6 +122,8 @@ export class CourseBuilderComponent implements OnInit {
   private readonly lessonsSvc = inject(LessonsService);
   private readonly pickerSvc = inject(DrivePickerService);
   private readonly http = inject(HttpClient);
+  private readonly quizSvc = inject(QuizService);
+  private readonly toast = inject(ToastService);
 
   courseId = '';
   course = signal<Course | null>(null);
@@ -198,6 +134,10 @@ export class CourseBuilderComponent implements OnInit {
   uploading = signal(false);
   error = signal<string | null>(null);
   saveError = signal<string | null>(null);
+  quizDraft: QuizDraft = emptyQuizDraft();
+  quizLoading = signal(false);
+  quizSaving = signal(false);
+  quizSaveError = signal<string | null>(null);
 
   videoSource: 'drive' | 'upload' = 'drive';
 
@@ -266,27 +206,25 @@ export class CourseBuilderComponent implements OnInit {
   }
 
   async deleteModule(mod: BuilderModule): Promise<void> {
-    if (!confirm(`¿Eliminar el módulo "${mod.title}" y todas sus clases?`)) return;
-    await this.modulesSvc.delete(this.courseId, mod.id);
-    this.modules.update(list => list.filter(m => m.id !== mod.id));
-    if (this.selectedLesson()?.module_id === mod.id) this.selectedLesson.set(null);
+    const ok = await this.toast.confirm({
+      title: 'Eliminar módulo',
+      message: `¿Eliminar el módulo "${mod.title}" y todas sus clases? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await this.modulesSvc.delete(this.courseId, mod.id);
+      this.modules.update(list => list.filter(m => m.id !== mod.id));
+      if (this.selectedLesson()?.module_id === mod.id) this.selectedLesson.set(null);
+      this.toast.success('Módulo eliminado.');
+    } catch { this.toast.error('No se pudo eliminar el módulo.'); }
   }
 
-  selectLesson(lesson: BuilderLesson, mod: BuilderModule): void {
-    this.editingModule.set(null);
-    this.selectedLesson.set(lesson);
-    this.videoSource = 'drive';
-    this.lessonForm = {
-      title: lesson.title,
-      description: lesson.description,
-      video_storage_ref: lesson.video_storage_ref,
-      video_storage_provider: lesson.video_storage_provider || 'drive',
-      duration_seconds: lesson.duration_seconds,
-      attachments: [...(lesson.attachments ?? [])],
-      _videoName: lesson.video_storage_ref ? '(video guardado)' : '',
-      _moduleId: mod.id,
-      _lessonId: lesson.id,
-    };
+  selectLesson(lesson: BuilderLesson, _mod: BuilderModule): void {
+    if (lesson.id) {
+      this.router.navigate(['/courses', this.courseId, 'lessons', lesson.id, 'edit']);
+    }
   }
 
   addLesson(mod: BuilderModule): void {
@@ -333,24 +271,33 @@ export class CourseBuilderComponent implements OnInit {
 
   async deleteLesson(): Promise<void> {
     const l = this.selectedLesson()!;
-    if (!l.id || !confirm(`¿Eliminar la clase "${l.title}"?`)) return;
+    if (!l.id) return;
+    const ok = await this.toast.confirm({
+      title: 'Eliminar clase',
+      message: `¿Eliminar la clase "${l.title}"? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar',
+      destructive: true,
+    });
+    if (!ok) return;
     this.saving.set(true);
     try {
       await this.lessonsSvc.delete(this.courseId, l.module_id, l.id);
       this.modules.update(list => list.map(m => m.id === l.module_id
         ? { ...m, lessons: m.lessons.filter(x => x.id !== l.id) } : m));
       this.selectedLesson.set(null);
-    } catch { this.saveError.set('Error al eliminar.'); }
+      this.toast.success('Clase eliminada.');
+    } catch { this.toast.error('Error al eliminar.'); }
     finally { this.saving.set(false); }
   }
 
   async pickVideo(): Promise<void> {
     try {
       const file = await this.pickerSvc.open(['video/mp4', 'video/webm', 'video/quicktime', 'video/*']);
+      await driveMakePublic(this.http, file.fileId).catch(() => {});
       this.lessonForm.video_storage_ref = file.fileId;
       this.lessonForm.video_storage_provider = 'drive';
       this.lessonForm._videoName = file.name;
-    } catch (err: unknown) { if (err instanceof Error && err.message !== 'cancelled') alert('Error al abrir Drive'); }
+    } catch (err: unknown) { if (err instanceof Error && err.message !== 'cancelled') this.toast.error('Error al abrir Drive.'); }
   }
 
   async uploadVideo(event: Event): Promise<void> {
@@ -362,42 +309,56 @@ export class CourseBuilderComponent implements OnInit {
       const fd = new FormData();
       fd.append('file', file);
       const res = await firstValueFrom(
-        this.http.post<{ data: { file_id: string; name: string } }>(`${environment.apiBaseUrl}/upload`, fd)
+        this.http.post<{ data: { file_id: string; name: string; mime_type: string; duration_seconds?: number } }>(
+          `${environment.apiBaseUrl}/upload-video?course_id=${this.courseId}`, fd,
+        ),
       );
       this.lessonForm.video_storage_ref = res.data.file_id;
       this.lessonForm.video_storage_provider = 'drive';
       this.lessonForm._videoName = res.data.name;
-    } catch { alert('Error al subir el video.'); }
+      if (res.data.duration_seconds) this.lessonForm.duration_seconds = res.data.duration_seconds;
+      this.toast.success('Video comprimido y subido a Drive.');
+    } catch { this.toast.error('Error al subir el video.'); }
     finally { this.uploading.set(false); }
   }
 
   async pickPdf(): Promise<void> {
     const lessonId = this.lessonForm._lessonId;
-    if (!lessonId) { alert('Guarda la clase primero antes de agregar adjuntos.'); return; }
+    if (!lessonId) { this.toast.warn('Guarda la clase primero antes de agregar adjuntos.'); return; }
     try {
       const file = await this.pickerSvc.open(['application/pdf']);
+      await driveMakePublic(this.http, file.fileId).catch(() => {});
       const att = await this.lessonsSvc.addAttachment(lessonId, { name: file.name, drive_file_id: file.fileId, mime_type: file.mimeType });
       this.lessonForm.attachments = [...this.lessonForm.attachments, att];
-    } catch (err: unknown) { if (err instanceof Error && err.message !== 'cancelled') alert('Error al abrir Drive'); }
+      this.toast.success('Adjunto agregado.');
+    } catch (err: unknown) { if (err instanceof Error && err.message !== 'cancelled') this.toast.error('Error al abrir Drive.'); }
   }
 
   async uploadPdf(event: Event): Promise<void> {
     const lessonId = this.lessonForm._lessonId;
-    if (!lessonId) { alert('Guarda la clase primero antes de agregar adjuntos.'); return; }
+    if (!lessonId) { this.toast.warn('Guarda la clase primero antes de agregar adjuntos.'); return; }
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
+    const files = Array.from(input.files ?? []);
+    if (files.length === 0) return;
     this.uploading.set(true);
+    let okCount = 0;
+    let failCount = 0;
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await firstValueFrom(
-        this.http.post<{ data: { file_id: string; name: string; mime_type: string } }>(`${environment.apiBaseUrl}/upload`, fd)
-      );
-      const att = await this.lessonsSvc.addAttachment(lessonId, { name: res.data.name, drive_file_id: res.data.file_id, mime_type: res.data.mime_type });
-      this.lessonForm.attachments = [...this.lessonForm.attachments, att];
-    } catch { alert('Error al subir el PDF.'); }
-    finally { this.uploading.set(false); }
+      for (const file of files) {
+        try {
+          const res = await uploadToDrive(this.http, file, this.courseId);
+          const att = await this.lessonsSvc.addAttachment(lessonId, { name: res.name, drive_file_id: res.file_id, mime_type: res.mime_type });
+          this.lessonForm.attachments = [...this.lessonForm.attachments, att];
+          okCount++;
+        } catch { failCount++; }
+      }
+      if (okCount > 0 && failCount === 0) this.toast.success(`${okCount} archivo(s) subido(s).`);
+      else if (okCount > 0 && failCount > 0) this.toast.warn(`${okCount} subidos, ${failCount} fallaron.`);
+      else this.toast.error('No se pudo subir ningún archivo.');
+    } finally {
+      this.uploading.set(false);
+      input.value = '';
+    }
   }
 
   async removeAttachment(att: Attachment): Promise<void> {
@@ -420,4 +381,59 @@ export class CourseBuilderComponent implements OnInit {
     this.modules.update(list => list.map(m => m.id === mod.id ? { ...m, lessons } : m));
     await this.lessonsSvc.reorder(this.courseId, mod.id, lessons.map(l => l.id)).catch(() => {});
   }
+
+  async loadQuiz(lessonId: string): Promise<void> {
+    this.quizLoading.set(true);
+    this.quizSaveError.set(null);
+    try {
+      const quiz = await this.quizSvc.get(lessonId);
+      this.quizDraft = {
+        pass_score: quiz.pass_score,
+        questions: quiz.questions.map(q => ({
+          text: q.text,
+          options: q.options.map(o => ({ text: o.text, is_correct: o.is_correct })),
+        })),
+      };
+    } catch {
+      this.quizDraft = emptyQuizDraft();
+    } finally { this.quizLoading.set(false); }
+  }
+
+  async saveQuiz(): Promise<void> {
+    const lessonId = this.lessonForm._lessonId;
+    if (!lessonId) return;
+    this.quizSaving.set(true); this.quizSaveError.set(null);
+    try {
+      await this.quizSvc.save(lessonId, this.quizDraft);
+      this.toast.success('Quiz guardado.');
+    } catch {
+      this.quizSaveError.set('Error al guardar el quiz.');
+    } finally { this.quizSaving.set(false); }
+  }
+
+  async deleteQuiz(): Promise<void> {
+    const lessonId = this.lessonForm._lessonId;
+    if (!lessonId) return;
+    const ok = await this.toast.confirm({
+      title: 'Borrar quiz',
+      message: '¿Borrar el quiz de esta clase? Las preguntas y respuestas se perderán.',
+      confirmLabel: 'Borrar',
+      destructive: true,
+    });
+    if (!ok) return;
+    this.quizSaving.set(true);
+    try {
+      await this.quizSvc.delete(lessonId);
+      this.quizDraft = emptyQuizDraft();
+      this.toast.success('Quiz eliminado.');
+    } catch {
+      this.toast.error('No se pudo borrar el quiz.');
+    } finally { this.quizSaving.set(false); }
+  }
+
+  addQuestion(): void { this.quizDraft = draftAddQuestion(this.quizDraft); }
+  removeQuestion(qi: number): void { this.quizDraft = draftRemoveQuestion(this.quizDraft, qi); }
+  addOption(qi: number): void { this.quizDraft = draftAddOption(this.quizDraft, qi); }
+  removeOption(qi: number, oi: number): void { this.quizDraft = draftRemoveOption(this.quizDraft, qi, oi); }
+  setCorrect(qi: number, oi: number): void { this.quizDraft = draftSetCorrect(this.quizDraft, qi, oi); }
 }

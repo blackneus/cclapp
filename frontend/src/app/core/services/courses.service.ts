@@ -52,7 +52,7 @@ export class CoursesService {
     return res.data;
   }
 
-  async update(id: string, payload: Partial<Pick<Course, 'title' | 'description' | 'price' | 'status'>>): Promise<Course> {
+  async update(id: string, payload: Partial<Pick<Course, 'title' | 'description' | 'price' | 'status' | 'teacher_id'>>): Promise<Course> {
     const res = await firstValueFrom(
       this.http.put<CourseResponse>(`${this.api}/courses/${id}`, payload),
     );

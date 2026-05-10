@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CoursesService } from '../../core/services/courses.service';
 import { AuthService } from '../../core/auth/auth.service';
+import { UsersService, User } from '../../core/services/users.service';
 
 @Component({
   selector: 'app-course-form',
@@ -35,6 +36,24 @@ import { AuthService } from '../../core/auth/auth.service';
             <textarea id="description" class="textarea" [(ngModel)]="description"
               name="description" placeholder="Describe el contenido del curso..."></textarea>
           </div>
+
+          @if (auth.isAdmin()) {
+            <div class="field">
+              <label for="teacher">Profesor asignado *</label>
+              <select id="teacher" class="select" [(ngModel)]="teacherId" name="teacher_id">
+                <option [ngValue]="''">— Selecciona un profesor —</option>
+                @for (t of teachers(); track t.id) {
+                  <option [ngValue]="t.id">{{ t.full_name }} ({{ t.email }})</option>
+                }
+              </select>
+              @if (teachers().length === 0) {
+                <span class="muted" style="font-size:12px">
+                  No hay profesores. <a routerLink="/people" style="color:var(--c-primary)">Crea uno</a>.
+                </span>
+              }
+            </div>
+          }
+
           <div class="field" style="max-width:200px">
             <label for="price">Precio (MXN)</label>
             <input id="price" class="input" type="number" min="0" step="0.01"
@@ -53,20 +72,27 @@ import { AuthService } from '../../core/auth/auth.service';
 })
 export class CourseFormComponent implements OnInit {
   private readonly coursesService = inject(CoursesService);
-  private readonly auth = inject(AuthService);
+  private readonly usersService = inject(UsersService);
+  readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
   readonly isEdit = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
+  readonly teachers = signal<User[]>([]);
 
   title = '';
   description = '';
   price = '0';
+  teacherId = '';
   private courseId = '';
 
   async ngOnInit(): Promise<void> {
+    if (this.auth.isAdmin()) {
+      this.usersService.list('teacher').then(t => this.teachers.set(t)).catch(() => this.teachers.set([]));
+    }
+
     const id = this.route.snapshot.params['id'] as string | undefined;
     if (id) {
       this.isEdit.set(true);
@@ -76,6 +102,7 @@ export class CourseFormComponent implements OnInit {
         this.title = course.title;
         this.description = course.description;
         this.price = course.price;
+        this.teacherId = course.teacher_id ?? '';
       } catch {
         this.error.set('No se pudo cargar el curso.');
       }
@@ -87,20 +114,27 @@ export class CourseFormComponent implements OnInit {
       this.error.set('El título es obligatorio.');
       return;
     }
+    if (this.auth.isAdmin() && !this.teacherId) {
+      this.error.set('Debes asignar un profesor.');
+      return;
+    }
     this.error.set(null);
     this.saving.set(true);
     try {
+      const priceStr = String(this.price ?? '0');
       if (this.isEdit()) {
         await this.coursesService.update(this.courseId, {
           title: this.title,
           description: this.description,
-          price: this.price,
+          price: priceStr,
+          ...(this.auth.isAdmin() && this.teacherId ? { teacher_id: this.teacherId } : {}),
         });
       } else {
         await this.coursesService.create({
           title: this.title,
           description: this.description,
-          price: this.price || '0',
+          price: priceStr || '0',
+          ...(this.auth.isAdmin() && this.teacherId ? { teacher_id: this.teacherId } : {}),
         });
       }
       await this.router.navigateByUrl('/courses');

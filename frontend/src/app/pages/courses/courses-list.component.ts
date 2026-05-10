@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { SlicePipe } from '@angular/common';
 import { AuthService } from '../../core/auth/auth.service';
 import { CoursesService, Course } from '../../core/services/courses.service';
+import { ToastService } from '../../core/ui/toast.service';
 
 @Component({
   selector: 'app-courses-list',
@@ -66,6 +67,13 @@ import { CoursesService, Course } from '../../core/services/courses.service';
                   @if (auth.isAdmin() || auth.isTeacher()) {
                     <a [routerLink]="['/courses', course.id, 'edit']" class="btn sm ghost">Editar</a>
                     <a [routerLink]="['/courses', course.id, 'build']" class="btn sm ghost">Construir</a>
+                    <a [routerLink]="['/courses', course.id, 'enrollments']" class="btn sm ghost">Alumnos</a>
+                    <a [routerLink]="['/courses', course.id, 'lessons', 'new']" class="btn sm primary">+ Clase</a>
+                    @if (auth.isAdmin() && course.status === 'draft') {
+                      <button class="btn sm danger" (click)="onDelete(course)" [disabled]="deletingId() === course.id">
+                        {{ deletingId() === course.id ? 'Borrando…' : 'Borrar' }}
+                      </button>
+                    }
                   }
                   @if (auth.isStudent()) {
                     <a [routerLink]="['/courses', course.id, 'learn']" class="btn sm primary">Ver curso</a>
@@ -84,10 +92,12 @@ import { CoursesService, Course } from '../../core/services/courses.service';
 export class CoursesListComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly coursesService = inject(CoursesService);
+  private readonly toast = inject(ToastService);
 
   readonly courses = signal<Course[]>([]);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly deletingId = signal<string | null>(null);
 
   async ngOnInit(): Promise<void> {
     this.loading.set(true);
@@ -114,5 +124,26 @@ export class CoursesListComponent implements OnInit {
   statusLabel(status: string): string {
     const map: Record<string, string> = { published: 'Publicado', archived: 'Archivado', draft: 'Borrador' };
     return map[status] ?? status;
+  }
+
+  async onDelete(course: Course): Promise<void> {
+    const ok = await this.toast.confirm({
+      title: 'Borrar curso',
+      message: `¿Borrar el curso "${course.title}"? Solo cursos en borrador se pueden borrar. Esta acción no se puede deshacer.`,
+      confirmLabel: 'Borrar',
+      destructive: true,
+    });
+    if (!ok) return;
+    this.deletingId.set(course.id);
+    try {
+      await this.coursesService.delete(course.id);
+      this.courses.update(list => list.filter(c => c.id !== course.id));
+      this.toast.success('Curso borrado.');
+    } catch (err: unknown) {
+      const e = err as { error?: { error?: { code?: string; message?: string } } };
+      this.toast.error(e.error?.error?.message ?? 'No se pudo borrar el curso.');
+    } finally {
+      this.deletingId.set(null);
+    }
   }
 }

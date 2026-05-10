@@ -87,11 +87,25 @@ export class DrivePickerService {
   ): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const gp = (window as any)['google']['picker'];
-    const view = new gp.DocsView();
-    if (mimeTypes?.length) view.setMimeTypes(mimeTypes.join(','));
+
+    // Note: setMimeTypes in DocsView is unreliable with Shared Drives — many files get hidden.
+    // We omit the filter and accept anything; the parent flow can validate after selection if needed.
+    const myDrive = new gp.DocsView(gp.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setOwnedByMe(true);
+    const sharedWithMe = new gp.DocsView(gp.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setOwnedByMe(false);
+    const sharedDrives = new gp.DocsView(gp.ViewId.DOCS)
+      .setEnableDrives(true)
+      .setIncludeFolders(true);
+    void mimeTypes;
 
     const picker = new gp.PickerBuilder()
-      .addView(view)
+      .enableFeature(gp.Feature.SUPPORT_DRIVES)
+      .addView(myDrive)
+      .addView(sharedDrives)
+      .addView(sharedWithMe)
       .setOAuthToken(token)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .setCallback((data: any) => {

@@ -27,4 +27,5 @@ type UpdateCourseInput struct {
 	Description *string `json:"description"`
 	Price       *string `json:"price"`
 	Status      *string `json:"status"`
+	TeacherID   *string `json:"teacher_id"`
 }

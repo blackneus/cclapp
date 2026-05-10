@@ -1,0 +1,45 @@
+PLANTILLA DE EXAMEN — LICREAMO LMS
+====================================
+
+Reglas:
+- Cada pregunta empieza con: número + punto + espacio  →  "1. ¿Pregunta?"
+- Opciones de opción múltiple: "a)", "b)", "c)"... (también acepta "a." o "(a)")
+- Verdadero/Falso: una línea con "V" y otra con "F" (también acepta "Verdadero"/"Falso")
+- Marca la opción CORRECTA poniendo "*" al inicio de la línea
+- Líneas vacías separan preguntas (opcional)
+- Se ignora todo lo que no sea pregunta u opción
+
+Ejemplo (puedes borrar esta sección y poner las tuyas):
+====================================
+
+
+1. ¿Cuál de las siguientes describe mejor un lvalue?
+a) Es siempre el resultado de una operación temporal
+*b) Tiene nombre, dirección en memoria y persiste
+c) Solo puede ser un literal numérico
+d) No tiene representación en memoria
+
+2. C++ tiene move semantics desde C++11.
+*V
+F
+
+3. ¿Qué hace exactamente std::move(x)?
+a) Mueve físicamente la memoria de x a otra dirección
+*b) Castea x a una rvalue reference, indicando que sus recursos pueden ser robados
+c) Libera inmediatamente la memoria que ocupa x
+d) Convierte x en una variable constante
+
+4. Antes de C++11 ya existía std::move como parte del estándar.
+V
+*F
+
+5. ¿Por qué es importante marcar el constructor de movimiento como noexcept?
+a) Para que el código compile en versiones antiguas
+*b) Porque sin él, std::vector preferirá copiar en vez de mover al reubicar
+c) Para que el destructor se ejecute correctamente
+d) Es solo recomendación de estilo
+
+
+====================================
+Tip: puedes escribir esto en Word (.docx), guardarlo como PDF, o como
+TXT plano. El parser acepta los tres formatos.

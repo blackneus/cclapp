@@ -33,8 +33,6 @@ ccl-licreamo/
 go build ./...          # Compile
 go test ./...           # Run all tests
 go run ./cmd/api        # Run locally (requires Postgres)
-# With Docker hot-reload:
-docker compose -f infra/docker-compose.dev.yml up
 ```
 
 ### Frontend (`frontend/`)
@@ -44,10 +42,9 @@ npm run build           # Production build
 npm test                # Unit tests
 ```
 
-### Full stack
+### Full stack (producción)
 ```bash
-docker compose -f infra/docker-compose.yml up -d       # Production
-docker compose -f infra/docker-compose.dev.yml up      # Dev with hot-reload
+sudo HOST_PORT=8090 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
 ## Architecture

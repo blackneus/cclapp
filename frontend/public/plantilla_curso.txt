@@ -1,0 +1,64 @@
+PLANTILLA DE CURSO COMPLETO — LICREAMO LMS
+============================================
+
+Sintaxis (no quitar las marcas, sí cambiar los textos después de los dos puntos):
+
+# MÓDULO: <nombre del módulo>
+## CLASE: <nombre de la clase>
+Descripción: <texto opcional, una o varias líneas hasta la siguiente CLASE/MÓDULO>
+
+(Repite módulos y clases las veces que necesites)
+
+Al final, opcionalmente puedes agregar un examen evaluador del curso completo:
+
+# QUIZ FINAL
+Puntuación mínima: 70
+
+1. ¿Pregunta?
+a) opción
+*b) opción correcta marcada con *
+c) otra
+
+2. Frase verdadera o falsa.
+*V
+F
+
+
+============================================
+EJEMPLO (puedes borrar esta sección y poner las tuyas)
+============================================
+
+
+# MÓDULO: Introducción a C++
+## CLASE: Bienvenida y entorno
+Descripción: Configuración de entorno, compilador y editor.
+
+## CLASE: Sintaxis básica
+Descripción: Tipos primitivos, variables, operadores y condicionales.
+
+## CLASE: Funciones y alcance
+Descripción: Definición de funciones, parámetros, retorno y scope.
+
+# MÓDULO: Estructuras de datos
+## CLASE: Arrays y vectores
+Descripción: std::vector, recorrido y métodos comunes.
+
+## CLASE: Punteros e iteradores
+Descripción: Manejo de memoria, punteros y begin/end.
+
+# QUIZ FINAL
+Puntuación mínima: 70
+
+1. ¿Cuál describe mejor un lvalue?
+a) Es siempre temporal
+*b) Tiene nombre, dirección y persiste
+c) Solo literales
+
+2. C++ tiene move semantics desde C++11.
+*V
+F
+
+3. ¿Qué hace std::move(x)?
+a) Mueve memoria físicamente
+*b) Castea a rvalue reference
+c) Libera memoria

@@ -130,12 +130,8 @@ func (r *Repository) GetOutline(ctx context.Context, tenantID, courseID, userID 
 		}
 		defer lRows.Close()
 
-		lessonMap := map[string]*OutlineLesson{}
-		moduleIndex := map[string]int{}
-		for i, m := range outline.Modules {
-			moduleIndex[m.ID] = i
-		}
-
+		// Primero leemos todas las lessons en un mapa por moduleID
+		lessonsByModule := map[string][]OutlineLesson{}
 		lessonIDs := []string{}
 		for lRows.Next() {
 			var l OutlineLesson
@@ -145,66 +141,76 @@ func (r *Repository) GetOutline(ctx context.Context, tenantID, courseID, userID 
 				&l.VideoStorageProvider, &l.VideoStorageRef, &l.DurationSeconds); err != nil {
 				return err
 			}
-			if idx, ok := moduleIndex[moduleID]; ok {
-				outline.Modules[idx].Lessons = append(outline.Modules[idx].Lessons, l)
-				last := &outline.Modules[idx].Lessons[len(outline.Modules[idx].Lessons)-1]
-				lessonMap[l.ID] = last
-				lessonIDs = append(lessonIDs, l.ID)
-			}
+			lessonsByModule[moduleID] = append(lessonsByModule[moduleID], l)
+			lessonIDs = append(lessonIDs, l.ID)
 		}
 		if err := lRows.Err(); err != nil {
 			return err
 		}
-		if len(lessonIDs) == 0 {
-			return nil
-		}
 
-		// Attachments
-		aRows, err := tx.Query(ctx,
-			`SELECT id, lesson_id, name, drive_file_id, mime_type, order_index
-			 FROM lesson_attachments WHERE lesson_id = ANY($1) ORDER BY order_index`,
-			lessonIDs,
-		)
-		if err != nil {
-			return fmt.Errorf("outline: attachments: %w", err)
-		}
-		defer aRows.Close()
-		for aRows.Next() {
-			var a OutlineAttachment
-			var lessonID string
-			if err := aRows.Scan(&a.ID, &lessonID, &a.Name, &a.DriveFileID, &a.MimeType, &a.OrderIndex); err != nil {
+		// Attachments por lesson
+		attachmentsByLesson := map[string][]OutlineAttachment{}
+		if len(lessonIDs) > 0 {
+			aRows, err := tx.Query(ctx,
+				`SELECT id, lesson_id, name, drive_file_id, mime_type, order_index
+				 FROM lesson_attachments WHERE lesson_id = ANY($1) ORDER BY order_index`,
+				lessonIDs,
+			)
+			if err != nil {
+				return fmt.Errorf("outline: attachments: %w", err)
+			}
+			defer aRows.Close()
+			for aRows.Next() {
+				var a OutlineAttachment
+				var lessonID string
+				if err := aRows.Scan(&a.ID, &lessonID, &a.Name, &a.DriveFileID, &a.MimeType, &a.OrderIndex); err != nil {
+					return err
+				}
+				attachmentsByLesson[lessonID] = append(attachmentsByLesson[lessonID], a)
+			}
+			if err := aRows.Err(); err != nil {
 				return err
 			}
-			if l, ok := lessonMap[lessonID]; ok {
-				l.Attachments = append(l.Attachments, a)
-			}
-		}
-		if err := aRows.Err(); err != nil {
-			return err
 		}
 
-		// Progress (if enrolled student)
-		if enrollmentID == "" {
-			return nil
-		}
-		pRows, err := tx.Query(ctx,
-			`SELECT lesson_id FROM lesson_progress WHERE enrollment_id = $1`,
-			enrollmentID,
-		)
-		if err != nil {
-			return fmt.Errorf("outline: progress: %w", err)
-		}
-		defer pRows.Close()
-		for pRows.Next() {
-			var lessonID string
-			if err := pRows.Scan(&lessonID); err != nil {
+		// Progress (si hay estudiante inscrito) → set de lesson_ids completados
+		completedLessons := map[string]bool{}
+		if enrollmentID != "" && len(lessonIDs) > 0 {
+			pRows, err := tx.Query(ctx,
+				`SELECT lesson_id FROM lesson_progress WHERE enrollment_id = $1`,
+				enrollmentID,
+			)
+			if err != nil {
+				return fmt.Errorf("outline: progress: %w", err)
+			}
+			defer pRows.Close()
+			for pRows.Next() {
+				var lessonID string
+				if err := pRows.Scan(&lessonID); err != nil {
+					return err
+				}
+				completedLessons[lessonID] = true
+			}
+			if err := pRows.Err(); err != nil {
 				return err
 			}
-			if l, ok := lessonMap[lessonID]; ok {
-				l.Completed = true
-			}
 		}
-		return pRows.Err()
+
+		// Ensamblar: asignar lessons + attachments + completed a sus módulos
+		for i := range outline.Modules {
+			modID := outline.Modules[i].ID
+			lessons := lessonsByModule[modID]
+			for j := range lessons {
+				if atts, ok := attachmentsByLesson[lessons[j].ID]; ok {
+					lessons[j].Attachments = atts
+				}
+				if completedLessons[lessons[j].ID] {
+					lessons[j].Completed = true
+				}
+			}
+			outline.Modules[i].Lessons = lessons
+		}
+		return nil
 	})
 	return outline, err
 }

@@ -5,7 +5,11 @@ secrets/
 # Build artifacts
 frontend/dist/
 frontend/node_modules/
+frontend/.angular/
 backend/tmp/
+
+# Claude local
+.claude/
 
 # Go
 backend/*.exe

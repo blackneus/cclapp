@@ -35,11 +35,7 @@ Para Google OAuth, crea credenciales en [Google Cloud Console](https://console.c
 ### 3. Levantar el stack
 
 ```bash
-# Producción (build completo)
-docker compose -f infra/docker-compose.yml up -d
-
-# Desarrollo con hot-reload
-docker compose -f infra/docker-compose.dev.yml up
+sudo HOST_PORT=8090 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
 El primer arranque:

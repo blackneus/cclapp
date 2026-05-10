@@ -25,6 +25,10 @@ services:
       dockerfile: Dockerfile
     container_name: licreamo-api
     env_file: ../.env
+    environment:
+      GOOGLE_SA_KEY_PATH: /app/sa-key.json
+    volumes:
+      - /home/ubuntu/vault/licreamo-sa.json:/app/sa-key.json:ro
     depends_on:
       postgres:
         condition: service_healthy

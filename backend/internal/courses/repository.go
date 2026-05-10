@@ -19,6 +19,37 @@ func NewRepository(database *db.DB) *Repository {
 	return &Repository{db: database}
 }
 
+func (r *Repository) SetDriveFolder(ctx context.Context, tenantID, courseID, folderID string) error {
+	return r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE courses SET drive_folder_id = $1, updated_at = NOW() WHERE id = $2`,
+			folderID, courseID,
+		)
+		return err
+	})
+}
+
+func (r *Repository) GetTitle(ctx context.Context, tenantID, courseID string) (string, error) {
+	var title string
+	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT title FROM courses WHERE id = $1`, courseID,
+		).Scan(&title)
+	})
+	return title, err
+}
+
+func (r *Repository) GetDriveFolder(ctx context.Context, tenantID, courseID string) (string, error) {
+	var folder string
+	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT COALESCE(drive_folder_id, '') FROM courses WHERE id = $1`,
+			courseID,
+		).Scan(&folder)
+	})
+	return folder, err
+}
+
 func (r *Repository) List(ctx context.Context, tenantID, teacherID string) ([]Course, error) {
 	var list []Course
 	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
@@ -112,6 +143,11 @@ func (r *Repository) Update(ctx context.Context, tenantID, id string, input Upda
 	if input.Status != nil {
 		setClauses = append(setClauses, fmt.Sprintf("status = $%d", argIdx))
 		args = append(args, *input.Status)
+		argIdx++
+	}
+	if input.TeacherID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("teacher_id = $%d", argIdx))
+		args = append(args, *input.TeacherID)
 		argIdx++
 	}
 

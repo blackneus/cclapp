@@ -1,6 +1,8 @@
 package courses
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -9,12 +11,23 @@ import (
 	"github.com/neusco/ccl-licreamo/backend/internal/tenancy"
 )
 
+// FolderCreator is implemented by storage.DriveClient. Optional dependency.
+type FolderCreator interface {
+	CreateFolder(ctx context.Context, name, parentID string) (string, error)
+}
+
 type Handler struct {
-	repo *Repository
+	repo   *Repository
+	drive  FolderCreator
 }
 
 func NewHandler(repo *Repository) *Handler {
 	return &Handler{repo: repo}
+}
+
+// SetDrive injects a folder creator (called by router after DriveClient is built).
+func (h *Handler) SetDrive(d FolderCreator) {
+	h.drive = d
 }
 
 func (h *Handler) List(c echo.Context) error {
@@ -75,8 +88,20 @@ func (h *Handler) Create(c echo.Context) error {
 	tenantID, _ := c.Get(tenancy.CtxKeyTenantID).(string)
 	course, err := h.repo.Create(c.Request().Context(), tenantID, input)
 	if err != nil {
+		c.Logger().Errorf("course create error: %v (tenant=%s, teacher=%s)", err, tenantID, input.TeacherID)
 		return echo.NewHTTPError(http.StatusInternalServerError, errResp("DB_ERROR", "failed to create course"))
 	}
+
+	// Best-effort: crear carpeta en Drive con el nombre del curso
+	if h.drive != nil {
+		folderID, ferr := h.drive.CreateFolder(c.Request().Context(), course.Title, "")
+		if ferr != nil {
+			slog.Warn("course folder create failed", "course_id", course.ID, "err", ferr)
+		} else if uerr := h.repo.SetDriveFolder(c.Request().Context(), tenantID, course.ID, folderID); uerr != nil {
+			slog.Warn("save course folder failed", "course_id", course.ID, "err", uerr)
+		}
+	}
+
 	return c.JSON(http.StatusCreated, map[string]interface{}{"message": "course created", "data": course})
 }
 
@@ -112,7 +137,17 @@ func (h *Handler) Delete(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, errResp("FORBIDDEN", "only admins can delete courses"))
 	}
 	tenantID, _ := c.Get(tenancy.CtxKeyTenantID).(string)
-	if err := h.repo.Delete(c.Request().Context(), tenantID, c.Param("id")); err != nil {
+	id := c.Param("id")
+
+	existing, err := h.repo.GetByID(c.Request().Context(), tenantID, id)
+	if err != nil || existing == nil {
+		return echo.NewHTTPError(http.StatusNotFound, errResp("NOT_FOUND", "curso no encontrado"))
+	}
+	if existing.Status != "draft" {
+		return echo.NewHTTPError(http.StatusConflict, errResp("INVALID_STATE", "solo se pueden borrar cursos en borrador"))
+	}
+
+	if err := h.repo.Delete(c.Request().Context(), tenantID, id); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, errResp("DB_ERROR", "failed to delete course"))
 	}
 	return c.JSON(http.StatusOK, map[string]interface{}{"message": "course deleted"})

@@ -30,6 +30,21 @@ export const routes: Routes = [
           import('./pages/courses/courses-list.component').then((m) => m.CoursesListComponent),
       },
       {
+        path: 'my-courses',
+        loadComponent: () =>
+          import('./pages/courses/my-courses.component').then((m) => m.MyCoursesComponent),
+      },
+      {
+        path: 'people',
+        loadComponent: () =>
+          import('./pages/people/people.component').then((m) => m.PeopleComponent),
+      },
+      {
+        path: 'courses/:id/enrollments',
+        loadComponent: () =>
+          import('./pages/courses/course-enrollments.component').then((m) => m.CourseEnrollmentsComponent),
+      },
+      {
         path: 'courses/new',
         loadComponent: () =>
           import('./pages/courses/course-form.component').then((m) => m.CourseFormComponent),
@@ -43,6 +58,21 @@ export const routes: Routes = [
         path: 'courses/:id/build',
         loadComponent: () =>
           import('./pages/courses/course-builder.component').then((m) => m.CourseBuilderComponent),
+      },
+      {
+        path: 'courses/:id/lessons/new',
+        loadComponent: () =>
+          import('./pages/courses/wizard/lesson-wizard.component').then((m) => m.LessonWizardComponent),
+      },
+      {
+        path: 'courses/:id/lessons/:lessonId/edit',
+        loadComponent: () =>
+          import('./pages/courses/wizard/lesson-wizard.component').then((m) => m.LessonWizardComponent),
+      },
+      {
+        path: 'courses/:id/import',
+        loadComponent: () =>
+          import('./pages/courses/course-import.component').then((m) => m.CourseImportComponent),
       },
       {
         path: 'courses/:id/learn',
