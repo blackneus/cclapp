@@ -42,14 +42,15 @@ type OutlineModule struct {
 }
 
 type OutlineEnrollment struct {
-	ID            string    `json:"id"`
-	PaymentStatus string    `json:"payment_status"`
-	EnrolledAt    time.Time `json:"enrolled_at"`
+	ID              string    `json:"id"`
+	PaymentStatus   string    `json:"payment_status"`
+	EnrolledAt      time.Time `json:"enrolled_at"`
+	HasActiveAccess bool      `json:"has_active_access"`
 }
 
 type Outline struct {
-	Course     *Course           `json:"course"`
-	Modules    []OutlineModule   `json:"modules"`
+	Course     *Course            `json:"course"`
+	Modules    []OutlineModule    `json:"modules"`
 	Enrollment *OutlineEnrollment `json:"enrollment"`
 }
 
@@ -231,6 +232,16 @@ func (h *Handler) Outline(c echo.Context) error {
 	}
 	if claims.Role == auth.RoleStudent && outline.Enrollment == nil {
 		return echo.NewHTTPError(http.StatusForbidden, errResp("NOT_ENROLLED", "you are not enrolled in this course"))
+	}
+	// Student: gate content behind active payment.
+	if claims.Role == auth.RoleStudent && outline.Enrollment != nil && h.access != nil {
+		ok, _ := h.access.HasActiveAccess(c.Request().Context(), tenantID, outline.Enrollment.ID, h.graceDays)
+		outline.Enrollment.HasActiveAccess = ok
+		if !ok {
+			outline.Modules = []OutlineModule{}
+		}
+	} else if outline.Enrollment != nil {
+		outline.Enrollment.HasActiveAccess = true
 	}
 	return c.JSON(http.StatusOK, map[string]interface{}{"message": "ok", "data": outline})
 }

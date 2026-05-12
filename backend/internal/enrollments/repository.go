@@ -8,15 +8,17 @@ import (
 )
 
 type Enrollment struct {
-	ID            string `json:"id"`
-	TenantID      string `json:"tenant_id"`
-	StudentID     string `json:"student_id"`
-	CourseID      string `json:"course_id"`
-	PaymentStatus string `json:"payment_status"`
-	EnrolledAt    string `json:"enrolled_at"`
-	StudentName   string `json:"student_name,omitempty"`
-	StudentEmail  string `json:"student_email,omitempty"`
-	CourseTitle   string `json:"course_title,omitempty"`
+	ID                  string  `json:"id"`
+	TenantID            string  `json:"tenant_id"`
+	StudentID           string  `json:"student_id"`
+	CourseID            string  `json:"course_id"`
+	PaymentStatus       string  `json:"payment_status"`
+	EnrolledAt          string  `json:"enrolled_at"`
+	StudentName         string  `json:"student_name,omitempty"`
+	StudentEmail        string  `json:"student_email,omitempty"`
+	CourseTitle         string  `json:"course_title,omitempty"`
+	CourseCoverImageURL string  `json:"course_cover_image_url,omitempty"`
+	LastRejectionReason *string `json:"last_rejection_reason,omitempty"`
 }
 
 type Repository struct {
@@ -52,7 +54,11 @@ func (r *Repository) ListByCourse(ctx context.Context, tenantID, courseID string
 
 func (r *Repository) ListByStudent(ctx context.Context, tenantID, studentID string) ([]Enrollment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT e.id, e.tenant_id, e.student_id, e.course_id, e.payment_status, e.enrolled_at::text, c.title
+		`SELECT e.id, e.tenant_id, e.student_id, e.course_id, e.payment_status, e.enrolled_at::text,
+		        c.title, COALESCE(c.cover_image_url, ''),
+		        (SELECT p.rejection_reason FROM payments p
+		         WHERE p.enrollment_id = e.id AND p.status = 'rejected'
+		         ORDER BY p.created_at DESC LIMIT 1) AS last_rejection_reason
 		 FROM enrollments e
 		 JOIN courses c ON c.id = e.course_id
 		 WHERE e.tenant_id = $1 AND e.student_id = $2
@@ -64,7 +70,8 @@ func (r *Repository) ListByStudent(ctx context.Context, tenantID, studentID stri
 	var out []Enrollment
 	for rows.Next() {
 		var e Enrollment
-		if err := rows.Scan(&e.ID, &e.TenantID, &e.StudentID, &e.CourseID, &e.PaymentStatus, &e.EnrolledAt, &e.CourseTitle); err != nil {
+		if err := rows.Scan(&e.ID, &e.TenantID, &e.StudentID, &e.CourseID, &e.PaymentStatus, &e.EnrolledAt,
+			&e.CourseTitle, &e.CourseCoverImageURL, &e.LastRejectionReason); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -74,7 +81,7 @@ func (r *Repository) ListByStudent(ctx context.Context, tenantID, studentID stri
 
 func (r *Repository) Create(ctx context.Context, tenantID, courseID, studentID, paymentStatus string) (*Enrollment, error) {
 	if paymentStatus == "" {
-		paymentStatus = "paid"
+		paymentStatus = "awaiting_payment"
 	}
 	var e Enrollment
 	err := r.pool.QueryRow(ctx,

@@ -10,6 +10,7 @@ export interface Course {
   description: string;
   cover_image_url: string;
   price: string;
+  enrollment_fee?: string;
   status: 'draft' | 'published' | 'archived';
   created_at: string;
   updated_at: string;
@@ -45,14 +46,14 @@ export class CoursesService {
     return res.data;
   }
 
-  async create(payload: { title: string; description: string; price: string; teacher_id?: string }): Promise<Course> {
+  async create(payload: { title: string; description: string; price: string; teacher_id?: string; cover_image_url?: string }): Promise<Course> {
     const res = await firstValueFrom(
       this.http.post<CourseResponse>(`${this.api}/courses`, payload),
     );
     return res.data;
   }
 
-  async update(id: string, payload: Partial<Pick<Course, 'title' | 'description' | 'price' | 'status' | 'teacher_id'>>): Promise<Course> {
+  async update(id: string, payload: Partial<Pick<Course, 'title' | 'description' | 'price' | 'status' | 'teacher_id' | 'cover_image_url'>>): Promise<Course> {
     const res = await firstValueFrom(
       this.http.put<CourseResponse>(`${this.api}/courses/${id}`, payload),
     );

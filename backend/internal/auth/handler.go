@@ -87,15 +87,34 @@ func (h *Handler) Refresh(c echo.Context) error {
 
 func (h *Handler) Me(c echo.Context) error {
 	claims := GetClaims(c)
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"message": "ok",
-		"data": map[string]interface{}{
-			"id":        claims.UserID,
-			"email":     claims.Email,
-			"role":      claims.Role,
-			"tenant_id": claims.TenantID,
-		},
-	})
+	p, err := h.svc.GetProfile(c.Request().Context(), claims.TenantID, claims.UserID)
+	if err != nil || p == nil {
+		// Fallback a info mínima del token si falla la BD.
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message": "ok",
+			"data": map[string]interface{}{
+				"id":        claims.UserID,
+				"email":     claims.Email,
+				"role":      claims.Role,
+				"tenant_id": claims.TenantID,
+			},
+		})
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{"message": "ok", "data": p})
+}
+
+func (h *Handler) UpdateMe(c echo.Context) error {
+	claims := GetClaims(c)
+	var inp UpdateProfileInput
+	if err := c.Bind(&inp); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("INVALID_BODY", "body inválido"))
+	}
+	p, err := h.svc.UpdateProfile(c.Request().Context(), claims.TenantID, claims.UserID, inp)
+	if err != nil {
+		c.Logger().Errorf("update profile: %v", err)
+		return c.JSON(http.StatusInternalServerError, errResp("DB_ERROR", "no se pudo actualizar el perfil"))
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{"data": p})
 }
 
 func (h *Handler) GoogleRedirect(c echo.Context) error {

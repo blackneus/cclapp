@@ -16,18 +16,34 @@ type FolderCreator interface {
 	CreateFolder(ctx context.Context, name, parentID string) (string, error)
 }
 
+// AccessChecker is implemented by payments.Repository — used to gate content
+// behind active payment status. Set via SetAccessChecker.
+type AccessChecker interface {
+	HasActiveAccess(ctx context.Context, tenantID, enrollmentID string, graceDays int) (bool, error)
+}
+
 type Handler struct {
-	repo   *Repository
-	drive  FolderCreator
+	repo      *Repository
+	drive     FolderCreator
+	access    AccessChecker
+	graceDays int
 }
 
 func NewHandler(repo *Repository) *Handler {
-	return &Handler{repo: repo}
+	return &Handler{repo: repo, graceDays: 5}
 }
 
 // SetDrive injects a folder creator (called by router after DriveClient is built).
 func (h *Handler) SetDrive(d FolderCreator) {
 	h.drive = d
+}
+
+// SetAccessChecker wires the payments-based access gate.
+func (h *Handler) SetAccessChecker(a AccessChecker, graceDays int) {
+	h.access = a
+	if graceDays > 0 {
+		h.graceDays = graceDays
+	}
 }
 
 func (h *Handler) List(c echo.Context) error {

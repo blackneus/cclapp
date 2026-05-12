@@ -1,9 +1,12 @@
 import { Component, OnInit, signal, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CoursesService } from '../../core/services/courses.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { UsersService, User } from '../../core/services/users.service';
+import { uploadToDriveWithProgress } from '../../core/utils/drive-upload';
+import { ToastService } from '../../core/ui/toast.service';
 
 @Component({
   selector: 'app-course-form',
@@ -59,6 +62,31 @@ import { UsersService, User } from '../../core/services/users.service';
             <input id="price" class="input" type="number" min="0" step="0.01"
               [(ngModel)]="price" name="price" placeholder="0.00" />
           </div>
+
+          <div class="field">
+            <label>Imagen del curso</label>
+            <div class="cover-row">
+              <div class="cover-preview" [class.empty]="!coverImageUrl()">
+                @if (coverPreviewUrl(); as src) {
+                  <img [src]="src" alt="Portada"/>
+                } @else {
+                  <span>Sin imagen</span>
+                }
+              </div>
+              <div class="cover-actions">
+                <input #fileInput type="file" accept="image/*" (change)="onCoverFile($event)" hidden />
+                <button type="button" class="btn ghost sm" (click)="fileInput.click()" [disabled]="uploadingCover()">
+                  {{ uploadingCover() ? 'Subiendo… ' + coverPct() + '%' : (coverImageUrl() ? 'Cambiar imagen' : 'Subir imagen') }}
+                </button>
+                @if (coverImageUrl() && !uploadingCover()) {
+                  <button type="button" class="btn ghost sm" (click)="removeCover()">Quitar</button>
+                }
+                @if (uploadingCover()) {
+                  <div class="cover-progress"><i [style.width.%]="coverPct()"></i></div>
+                }
+              </div>
+            </div>
+          </div>
         </div>
         <div class="card-foot">
           <a routerLink="/courses" class="btn ghost">Cancelar</a>
@@ -69,10 +97,21 @@ import { UsersService, User } from '../../core/services/users.service';
       </form>
     </div>
   `,
+  styles: [`
+    .cover-row { display:flex; gap:16px; align-items:flex-start }
+    .cover-preview { width:200px; height:120px; border-radius:10px; background:#1a2547; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.6); font-size:13px; overflow:hidden; flex-shrink:0 }
+    .cover-preview img { width:100%; height:100%; object-fit:cover }
+    .cover-preview.empty { background:#f4f6fb; color:#6b7088; border:1px dashed #d3d6e0 }
+    .cover-actions { display:flex; flex-direction:column; gap:8px; align-items:flex-start }
+    .cover-progress { width:200px; height:4px; background:#e3e5ec; border-radius:2px; overflow:hidden }
+    .cover-progress i { display:block; height:100%; background:#3a4cce; transition:width .2s ease }
+  `],
 })
 export class CourseFormComponent implements OnInit {
   private readonly coursesService = inject(CoursesService);
   private readonly usersService = inject(UsersService);
+  private readonly http = inject(HttpClient);
+  private readonly toast = inject(ToastService);
   readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -81,6 +120,9 @@ export class CourseFormComponent implements OnInit {
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly teachers = signal<User[]>([]);
+  readonly coverImageUrl = signal('');
+  readonly uploadingCover = signal(false);
+  readonly coverPct = signal(0);
 
   title = '';
   description = '';
@@ -103,10 +145,53 @@ export class CourseFormComponent implements OnInit {
         this.description = course.description;
         this.price = course.price;
         this.teacherId = course.teacher_id ?? '';
+        this.coverImageUrl.set(course.cover_image_url ?? '');
       } catch {
         this.error.set('No se pudo cargar el curso.');
       }
     }
+  }
+
+  async onCoverFile(ev: Event): Promise<void> {
+    const target = ev.target as HTMLInputElement;
+    const f = target.files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
+      this.toast.error('El archivo debe ser una imagen.');
+      target.value = '';
+      return;
+    }
+    if (f.size > 8 * 1024 * 1024) {
+      this.toast.error('Imagen demasiado grande (máx 8 MB).');
+      target.value = '';
+      return;
+    }
+    this.uploadingCover.set(true);
+    this.coverPct.set(0);
+    try {
+      const res = await uploadToDriveWithProgress(
+        this.http, f, (pct) => this.coverPct.set(pct), 'upload',
+        this.courseId || undefined,
+      );
+      this.coverImageUrl.set(`https://drive.google.com/uc?export=view&id=${res.file_id}`);
+      this.toast.success('Imagen cargada.');
+    } catch {
+      this.toast.error('No se pudo subir la imagen.');
+    } finally {
+      this.uploadingCover.set(false);
+      target.value = '';
+    }
+  }
+
+  removeCover(): void {
+    this.coverImageUrl.set('');
+  }
+
+  coverPreviewUrl(): string | null {
+    const url = this.coverImageUrl();
+    if (!url) return null;
+    const m = url.match(/(?:\/file\/d\/|[?&]id=|\/d\/)([A-Za-z0-9_-]{20,})/);
+    return m ? `https://lh3.googleusercontent.com/d/${m[1]}=w800` : url;
   }
 
   async onSubmit(): Promise<void> {
@@ -127,6 +212,7 @@ export class CourseFormComponent implements OnInit {
           title: this.title,
           description: this.description,
           price: priceStr,
+          cover_image_url: this.coverImageUrl(),
           ...(this.auth.isAdmin() && this.teacherId ? { teacher_id: this.teacherId } : {}),
         });
       } else {
@@ -134,6 +220,7 @@ export class CourseFormComponent implements OnInit {
           title: this.title,
           description: this.description,
           price: priceStr || '0',
+          cover_image_url: this.coverImageUrl(),
           ...(this.auth.isAdmin() && this.teacherId ? { teacher_id: this.teacherId } : {}),
         });
       }

@@ -27,7 +27,7 @@ export function uploadToDriveWithProgress(
   http: HttpClient,
   file: File,
   onProgress: (pct: number) => void,
-  endpoint: 'upload' | 'upload-video' = 'upload',
+  endpoint: 'upload' | 'upload-video' | 'me/avatar' = 'upload',
   courseId?: string,
 ): Promise<DriveUploadResult> {
   const fd = new FormData();

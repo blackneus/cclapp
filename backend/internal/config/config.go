@@ -15,6 +15,7 @@ type Config struct {
 	Google   GoogleConfig
 	Seed     SeedConfig
 	Storage  StorageConfig
+	Payments PaymentsConfig
 }
 
 type DatabaseConfig struct {
@@ -44,6 +45,10 @@ type StorageConfig struct {
 	SAKeyPath string
 	FolderID  string
 	Enabled   bool
+}
+
+type PaymentsConfig struct {
+	GraceDays int
 }
 
 func Load() (*Config, error) {
@@ -86,7 +91,17 @@ func Load() (*Config, error) {
 			FolderID:  getEnv("GOOGLE_DRIVE_FOLDER_ID", ""),
 			Enabled:   os.Getenv("GOOGLE_SA_KEY_PATH") != "" && os.Getenv("GOOGLE_DRIVE_FOLDER_ID") != "",
 		},
+		Payments: PaymentsConfig{
+			GraceDays: atoiOr(getEnv("PAYMENT_GRACE_DAYS", "5"), 5),
+		},
 	}, nil
+}
+
+func atoiOr(s string, fallback int) int {
+	if v, err := strconv.Atoi(s); err == nil {
+		return v
+	}
+	return fallback
 }
 
 func getEnv(key, fallback string) string {

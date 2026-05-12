@@ -12,6 +12,8 @@ export interface Enrollment {
   student_name?: string;
   student_email?: string;
   course_title?: string;
+  course_cover_image_url?: string;
+  last_rejection_reason?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -26,7 +28,21 @@ export class EnrollmentsService {
     return res.data ?? [];
   }
 
-  async create(courseId: string, studentId: string, paymentStatus: string = 'paid'): Promise<Enrollment> {
+  async listMine(): Promise<Enrollment[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ data: Enrollment[] }>(`${this.api}/me/enrollments`)
+    );
+    return res.data ?? [];
+  }
+
+  async enrollSelf(courseId: string): Promise<Enrollment> {
+    const res = await firstValueFrom(
+      this.http.post<{ data: Enrollment }>(`${this.api}/courses/${courseId}/enrollments`, {})
+    );
+    return res.data;
+  }
+
+  async create(courseId: string, studentId: string, paymentStatus: string = 'awaiting_payment'): Promise<Enrollment> {
     const res = await firstValueFrom(
       this.http.post<{ data: Enrollment }>(`${this.api}/courses/${courseId}/enrollments`, {
         student_id: studentId,

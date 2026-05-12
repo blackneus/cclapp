@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/auth/auth.guard';
+import { adminGuard } from './core/auth/admin.guard';
 
 export const routes: Routes = [
   {
@@ -38,6 +39,28 @@ export const routes: Routes = [
         path: 'people',
         loadComponent: () =>
           import('./pages/people/people.component').then((m) => m.PeopleComponent),
+      },
+      {
+        path: 'payments',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./pages/payments/payments-admin.component').then((m) => m.PaymentsAdminComponent),
+      },
+      {
+        path: 'my-payments',
+        loadComponent: () =>
+          import('./pages/payments/my-payments.component').then((m) => m.MyPaymentsComponent),
+      },
+      {
+        path: 'profile',
+        loadComponent: () =>
+          import('./pages/profile/profile.component').then((m) => m.ProfileComponent),
+      },
+      {
+        path: 'settings',
+        canActivate: [adminGuard],
+        loadComponent: () =>
+          import('./pages/settings/settings.component').then((m) => m.SettingsComponent),
       },
       {
         path: 'courses/:id/enrollments',

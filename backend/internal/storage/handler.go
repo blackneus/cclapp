@@ -29,13 +29,28 @@ type CourseLookup interface {
 }
 
 type Handler struct {
-	drive       *DriveClient
-	courses     CoursesRepo
-	courseTitle CourseLookup
+	drive            *DriveClient
+	courses          CoursesRepo
+	courseTitle      CourseLookup
+	profilesFolderID string
 }
 
 func NewHandler(drive *DriveClient) *Handler {
 	return &Handler{drive: drive}
+}
+
+// resolveProfilesFolder lazily creates the "Perfiles" folder at the root of the
+// configured shared drive and caches the ID on the handler.
+func (h *Handler) resolveProfilesFolder(ctx context.Context) string {
+	if h.profilesFolderID != "" {
+		return h.profilesFolderID
+	}
+	id, err := h.drive.CreateFolder(ctx, "Perfiles", "")
+	if err != nil {
+		return ""
+	}
+	h.profilesFolderID = id
+	return id
 }
 
 func (h *Handler) SetCoursesRepo(r CoursesRepo) {
@@ -284,4 +299,64 @@ func (h *Handler) MakePublic(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, errResp("DRIVE_ERROR", "no se pudo hacer público el archivo"))
 	}
 	return c.JSON(http.StatusOK, map[string]interface{}{"message": "ok"})
+}
+
+// UploadAvatar permite a cualquier usuario autenticado subir su foto de perfil
+// a la carpeta "Perfiles" del shared drive. Retorna el file_id y URL pública.
+func (h *Handler) UploadAvatar(c echo.Context) error {
+	file, err := c.FormFile("file")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, errResp("MISSING_FILE", "file field is required"))
+	}
+	src, err := file.Open()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, errResp("IO_ERROR", "cannot open uploaded file"))
+	}
+	defer src.Close()
+
+	ext := filepath.Ext(file.Filename)
+	tmpPath := fmt.Sprintf("/tmp/licreamo-avatar-%s%s", uuid.NewString(), ext)
+	dst, err := os.Create(tmpPath)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, errResp("IO_ERROR", "cannot create temp file"))
+	}
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := src.Read(buf)
+		if n > 0 {
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				dst.Close()
+				os.Remove(tmpPath)
+				return echo.NewHTTPError(http.StatusInternalServerError, errResp("IO_ERROR", "write error"))
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	dst.Close()
+	defer os.Remove(tmpPath)
+
+	mimeType := file.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	claims := auth.GetClaims(c)
+	parent := h.resolveProfilesFolder(c.Request().Context())
+	name := fmt.Sprintf("avatar-%s-%s%s", claims.UserID[:8], uuid.NewString()[:6], ext)
+	fileID, err := h.drive.UploadTo(c.Request().Context(), tmpPath, name, mimeType, parent)
+	if err != nil {
+		c.Logger().Errorf("avatar upload error: %v", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, errResp("DRIVE_ERROR", "failed to upload avatar"))
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"message": "uploaded",
+		"data": map[string]string{
+			"file_id":   fileID,
+			"name":      file.Filename,
+			"mime_type": mimeType,
+		},
+	})
 }

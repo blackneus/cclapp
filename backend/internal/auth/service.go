@@ -174,3 +174,85 @@ func (s *Service) generateTokenPair(ctx context.Context, u UserInfo) (*TokenPair
 		ExpiresIn:    int(s.accessTTL.Seconds()),
 	}, nil
 }
+
+type Profile struct {
+	ID        string  `json:"id"`
+	Email     string  `json:"email"`
+	FullName  string  `json:"full_name"`
+	Role      string  `json:"role"`
+	TenantID  string  `json:"tenant_id"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+	Birthday  *string `json:"birthday,omitempty"`
+}
+
+func (s *Service) GetProfile(ctx context.Context, tenantID, userID string) (*Profile, error) {
+	var p Profile
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, email, full_name, role::text, tenant_id, avatar_url, birthday::text
+		 FROM users WHERE id = $1 AND tenant_id = $2`,
+		userID, tenantID,
+	).Scan(&p.ID, &p.Email, &p.FullName, &p.Role, &p.TenantID, &p.AvatarURL, &p.Birthday)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &p, err
+}
+
+type UpdateProfileInput struct {
+	FullName  *string `json:"full_name"`
+	AvatarURL *string `json:"avatar_url"`
+	Birthday  *string `json:"birthday"` // YYYY-MM-DD or empty to clear
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, tenantID, userID string, inp UpdateProfileInput) (*Profile, error) {
+	sets := []string{}
+	args := []interface{}{}
+	idx := 1
+	if inp.FullName != nil {
+		sets = append(sets, fmt.Sprintf("full_name = $%d", idx))
+		args = append(args, *inp.FullName)
+		idx++
+	}
+	if inp.AvatarURL != nil {
+		sets = append(sets, fmt.Sprintf("avatar_url = $%d", idx))
+		if *inp.AvatarURL == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *inp.AvatarURL)
+		}
+		idx++
+	}
+	if inp.Birthday != nil {
+		sets = append(sets, fmt.Sprintf("birthday = $%d::date", idx))
+		if *inp.Birthday == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *inp.Birthday)
+		}
+		idx++
+	}
+	if len(sets) == 0 {
+		return s.GetProfile(ctx, tenantID, userID)
+	}
+	sets = append(sets, "updated_at = NOW()")
+	args = append(args, userID, tenantID)
+	query := fmt.Sprintf(
+		`UPDATE users SET %s WHERE id = $%d AND tenant_id = $%d`,
+		joinComma(sets), idx, idx+1,
+	)
+	if _, err := s.pool.Exec(ctx, query, args...); err != nil {
+		return nil, fmt.Errorf("auth: update profile: %w", err)
+	}
+	return s.GetProfile(ctx, tenantID, userID)
+}
+
+func joinComma(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
+}

@@ -19,7 +19,7 @@ interface ViewerLesson {
   attachments: ViewerAttachment[]; completed: boolean;
 }
 interface ViewerModule { id: string; title: string; description: string; order_index: number; lessons: ViewerLesson[]; }
-interface ViewerEnrollment { id: string; payment_status: string; }
+interface ViewerEnrollment { id: string; payment_status: string; has_active_access?: boolean; }
 interface Outline { course: { id: string; title: string; description: string }; modules: ViewerModule[]; enrollment: ViewerEnrollment | null; }
 
 type ViewerTab = 'contenido' | 'recursos' | 'comentarios';
@@ -426,6 +426,13 @@ export class CourseViewerComponent implements OnInit, OnDestroy {
         this.http.get<{ data: Outline }>(`${environment.apiBaseUrl}/courses/${courseId}/outline`)
       );
       this.outline.set(res.data);
+      // Pago vigente: si no tiene acceso, manda a /my-courses con el upload abierto.
+      const enr = res.data.enrollment;
+      if (enr && enr.has_active_access === false) {
+        this.toast.warn('Necesitas estar al día con tus pagos para acceder al curso.');
+        this.router.navigate(['/my-courses'], { queryParams: { upload: enr.id } });
+        return;
+      }
       const allLessons: { lesson: ViewerLesson; mod: ViewerModule }[] = [];
       for (const mod of res.data.modules) {
         for (const lesson of mod.lessons) allLessons.push({ lesson, mod });

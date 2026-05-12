@@ -17,10 +17,12 @@ import (
 	"github.com/neusco/ccl-licreamo/backend/internal/enrollments"
 	"github.com/neusco/ccl-licreamo/backend/internal/lessons"
 	"github.com/neusco/ccl-licreamo/backend/internal/modules"
+	"github.com/neusco/ccl-licreamo/backend/internal/payments"
 	"github.com/neusco/ccl-licreamo/backend/internal/progress"
 	"github.com/neusco/ccl-licreamo/backend/internal/quizzes"
 	"github.com/neusco/ccl-licreamo/backend/internal/storage"
 	"github.com/neusco/ccl-licreamo/backend/internal/tenancy"
+	"github.com/neusco/ccl-licreamo/backend/internal/tenantapi"
 	"github.com/neusco/ccl-licreamo/backend/internal/users"
 )
 
@@ -65,6 +67,11 @@ func NewRouter(cfg *config.Config, database *db.DB) *echo.Echo {
 
 	protected := e.Group("", authpkg.JWTMiddleware(cfg.JWT.Secret))
 	protected.GET("/auth/me", authHandler.Me)
+	protected.PATCH("/auth/me", authHandler.UpdateMe)
+
+	tenantHandler := tenantapi.NewHandler(database.Pool())
+	protected.GET("/tenant", tenantHandler.Get)
+	protected.PATCH("/tenant", tenantHandler.Update)
 
 	// Courses
 	coursesRepo := courses.NewRepository(database)
@@ -122,6 +129,11 @@ func NewRouter(cfg *config.Config, database *db.DB) *echo.Echo {
 	protected.GET("/courses/:id/enrollments", enrollHandler.ListByCourse)
 	protected.POST("/courses/:id/enrollments", enrollHandler.Create)
 	protected.DELETE("/courses/:cid/enrollments/:eid", enrollHandler.Delete)
+	protected.GET("/me/enrollments", enrollHandler.ListMine)
+
+	// Payments (mensualidad + cuota de inscripción, comprobante a Drive)
+	paymentsRepo := payments.NewRepository(database)
+	coursesHandler.SetAccessChecker(paymentsRepo, cfg.Payments.GraceDays)
 
 	// Comments
 	commentsRepo := comments.NewRepository(database)
@@ -136,6 +148,7 @@ func NewRouter(cfg *config.Config, database *db.DB) *echo.Echo {
 	protected.POST("/courses/:id/structure/apply", structureHandler.ApplyImport)
 
 	// Storage (upload → Google Drive)
+	var paymentsDrive payments.DriveUploader
 	if cfg.Storage.Enabled {
 		driveClient, err := storage.NewDriveClient(context.Background(), cfg.Storage.SAKeyPath, cfg.Storage.FolderID)
 		if err != nil {
@@ -145,12 +158,24 @@ func NewRouter(cfg *config.Config, database *db.DB) *echo.Echo {
 			storageHandler.SetCoursesRepo(coursesRepo)
 			storageHandler.SetCourseLookup(coursesRepo)
 			coursesHandler.SetDrive(driveClient)
+			paymentsDrive = driveClient
 			protected.POST("/upload", storageHandler.Upload)
 			protected.POST("/upload-video", storageHandler.UploadVideo)
+			protected.POST("/me/avatar", storageHandler.UploadAvatar)
 			protected.POST("/drive/make-public", storageHandler.MakePublic)
 			protected.GET("/drive/inspect/:id", storageHandler.Inspect)
 		}
 	}
+
+	paymentsHandler := payments.NewHandler(paymentsRepo, paymentsDrive)
+	paymentsHandler.SetCourseFolders(coursesRepo)
+	protected.POST("/payments", paymentsHandler.Upload)
+	protected.POST("/payments/cash", paymentsHandler.CashPayment)
+	protected.GET("/payments/pending", paymentsHandler.ListPending)
+	protected.GET("/payments/my", paymentsHandler.ListMine)
+	protected.GET("/enrollments/:eid/payments", paymentsHandler.ListByEnrollment)
+	protected.POST("/payments/groups/:gid/verify", paymentsHandler.VerifyGroup)
+	protected.POST("/payments/groups/:gid/reject", paymentsHandler.RejectGroup)
 
 	return e
 }

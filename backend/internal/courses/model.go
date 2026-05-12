@@ -16,16 +16,18 @@ type Course struct {
 }
 
 type CreateCourseInput struct {
-	TeacherID   string `json:"teacher_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Price       string `json:"price"`
+	TeacherID     string `json:"teacher_id"`
+	Title         string `json:"title"`
+	Description   string `json:"description"`
+	Price         string `json:"price"`
+	CoverImageURL string `json:"cover_image_url"`
 }
 
 type UpdateCourseInput struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Price       *string `json:"price"`
-	Status      *string `json:"status"`
-	TeacherID   *string `json:"teacher_id"`
+	Title         *string `json:"title"`
+	Description   *string `json:"description"`
+	Price         *string `json:"price"`
+	Status        *string `json:"status"`
+	TeacherID     *string `json:"teacher_id"`
+	CoverImageURL *string `json:"cover_image_url"`
 }

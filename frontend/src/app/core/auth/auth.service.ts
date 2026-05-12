@@ -10,6 +10,14 @@ export interface AuthUser {
   full_name: string;
   role: 'admin' | 'teacher' | 'student';
   tenant_id: string;
+  avatar_url?: string;
+  birthday?: string;
+}
+
+export interface UpdateProfilePayload {
+  full_name?: string;
+  avatar_url?: string;
+  birthday?: string;
 }
 
 interface LoginResponse {
@@ -66,6 +74,7 @@ export class AuthService {
       );
       this.setTokens(res.data.access_token, res.data.refresh_token);
       this._user.set(res.data.user);
+      await this.loadMe();
     } finally {
       this._loading.set(false);
     }
@@ -86,6 +95,14 @@ export class AuthService {
       this.logout(false);
       return null;
     }
+  }
+
+  async updateProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
+    const res = await firstValueFrom(
+      this.http.patch<{ data: AuthUser }>(`${this.api}/auth/me`, payload),
+    );
+    this._user.set(res.data);
+    return res.data;
   }
 
   logout(redirect = true): void {

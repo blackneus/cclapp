@@ -4,12 +4,14 @@ import { FormsModule } from '@angular/forms';
 import { EnrollmentsService, Enrollment } from '../../core/services/enrollments.service';
 import { UsersService, User } from '../../core/services/users.service';
 import { CoursesService, Course } from '../../core/services/courses.service';
+import { PaymentsService } from '../../core/services/payments.service';
 import { ToastService } from '../../core/ui/toast.service';
+import { UploadReceiptModalComponent } from '../payments/upload-receipt-modal.component';
 
 @Component({
   selector: 'app-course-enrollments',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, UploadReceiptModalComponent],
   template: `
     <div class="page-head">
       <div>
@@ -36,11 +38,12 @@ import { ToastService } from '../../core/ui/toast.service';
             }
           </select>
         </div>
-        <div class="field" style="max-width:180px">
+        <div class="field" style="max-width:260px">
           <label>Estado de pago</label>
-          <select class="select" [(ngModel)]="paymentStatus">
-            <option value="paid">Pagado</option>
-            <option value="awaiting_payment">Pendiente</option>
+          <select class="select" [(ngModel)]="paymentChoice">
+            <option value="pending">Pendiente</option>
+            <option value="paid_cash">Pagado — Efectivo</option>
+            <option value="paid_deposit">Pagado — Depósito (comprobante)</option>
             <option value="exempt">Exento</option>
           </select>
         </div>
@@ -90,6 +93,10 @@ import { ToastService } from '../../core/ui/toast.service';
         </tbody>
       </table>
     </div>
+
+    @if (uploadFor(); as eid) {
+      <app-upload-receipt-modal [enrollmentId]="eid" (closed)="onUploadClosed($event)" />
+    }
   `,
 })
 export class CourseEnrollmentsComponent implements OnInit {
@@ -97,6 +104,7 @@ export class CourseEnrollmentsComponent implements OnInit {
   private readonly enrollSvc = inject(EnrollmentsService);
   private readonly usersSvc = inject(UsersService);
   private readonly coursesSvc = inject(CoursesService);
+  private readonly paymentsSvc = inject(PaymentsService);
   private readonly toast = inject(ToastService);
 
   courseId = '';
@@ -104,9 +112,10 @@ export class CourseEnrollmentsComponent implements OnInit {
   enrollments = signal<Enrollment[]>([]);
   allStudents = signal<User[]>([]);
   enrolling = signal(false);
+  uploadFor = signal<string | null>(null);
 
   selectedStudent = '';
-  paymentStatus: 'paid' | 'awaiting_payment' | 'exempt' = 'paid';
+  paymentChoice: 'pending' | 'paid_cash' | 'paid_deposit' | 'exempt' = 'pending';
 
   availableStudents = computed(() => {
     const enrolled = new Set(this.enrollments().map(e => e.student_id));
@@ -132,13 +141,43 @@ export class CourseEnrollmentsComponent implements OnInit {
     if (!this.selectedStudent) return;
     this.enrolling.set(true);
     try {
-      await this.enrollSvc.create(this.courseId, this.selectedStudent, this.paymentStatus);
+      // Mapeo: la inscripción siempre arranca pendiente o exenta; los pagos se
+      // registran después según el método elegido.
+      const initialStatus = this.paymentChoice === 'exempt' ? 'exempt' : 'awaiting_payment';
+      const enr = await this.enrollSvc.create(this.courseId, this.selectedStudent, initialStatus);
       this.selectedStudent = '';
       await this.refresh();
-      this.toast.success('Alumno inscrito.');
+
+      if (this.paymentChoice === 'paid_cash') {
+        const now = new Date();
+        const summary = await this.paymentsSvc.summaryForEnrollment(enr.id);
+        const includeFee = summary.enrollment_fee_status === 'unpaid';
+        const periods = parseFloat(summary.monthly_fee) > 0
+          ? [{ year: now.getFullYear(), month: now.getMonth() + 1 }]
+          : [];
+        if (includeFee || periods.length > 0) {
+          await this.paymentsSvc.cash({
+            enrollmentId: enr.id,
+            includeEnrollmentFee: includeFee,
+            periods,
+          });
+          await this.refresh();
+        }
+        this.toast.success('Alumno inscrito y pago en efectivo registrado.');
+      } else if (this.paymentChoice === 'paid_deposit') {
+        this.uploadFor.set(enr.id);
+        this.toast.success('Alumno inscrito. Sube el comprobante para activar.');
+      } else {
+        this.toast.success('Alumno inscrito.');
+      }
     } catch {
       this.toast.error('No se pudo inscribir al alumno.');
     } finally { this.enrolling.set(false); }
+  }
+
+  async onUploadClosed(event: { uploaded: boolean }): Promise<void> {
+    this.uploadFor.set(null);
+    if (event.uploaded) await this.refresh();
   }
 
   async unenroll(e: Enrollment): Promise<void> {

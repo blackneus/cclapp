@@ -50,6 +50,39 @@ func (r *Repository) GetDriveFolder(ctx context.Context, tenantID, courseID stri
 	return folder, err
 }
 
+func (r *Repository) GetPaymentsFolder(ctx context.Context, tenantID, courseID string) (string, error) {
+	var folder string
+	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT COALESCE(payments_folder_id, '') FROM courses WHERE id = $1`,
+			courseID,
+		).Scan(&folder)
+	})
+	return folder, err
+}
+
+func (r *Repository) SetPaymentsFolder(ctx context.Context, tenantID, courseID, folderID string) error {
+	return r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE courses SET payments_folder_id = $1, updated_at = NOW() WHERE id = $2`,
+			folderID, courseID,
+		)
+		return err
+	})
+}
+
+// EnrollmentCourse retorna el course_id de un enrollment dado, ya con tenant
+// aplicado vía RLS. Útil para localizar carpetas de pago.
+func (r *Repository) EnrollmentCourse(ctx context.Context, tenantID, enrollmentID string) (string, error) {
+	var courseID string
+	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT course_id::text FROM enrollments WHERE id = $1`, enrollmentID,
+		).Scan(&courseID)
+	})
+	return courseID, err
+}
+
 func (r *Repository) List(ctx context.Context, tenantID, teacherID string) ([]Course, error) {
 	var list []Course
 	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
@@ -103,13 +136,17 @@ func (r *Repository) GetByID(ctx context.Context, tenantID, id string) (*Course,
 
 func (r *Repository) Create(ctx context.Context, tenantID string, input CreateCourseInput) (*Course, error) {
 	var c Course
+	var cover interface{} = nil
+	if input.CoverImageURL != "" {
+		cover = input.CoverImageURL
+	}
 	err := r.db.WithTenant(ctx, tenantID, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`INSERT INTO courses (id, tenant_id, teacher_id, title, description, price, status)
-			 VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::numeric, 'draft')
+			`INSERT INTO courses (id, tenant_id, teacher_id, title, description, price, cover_image_url, status)
+			 VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::numeric, $6, 'draft')
 			 RETURNING id, tenant_id, teacher_id, title, description,
 			 COALESCE(cover_image_url,''), price::text, status, created_at, updated_at`,
-			tenantID, input.TeacherID, input.Title, input.Description, input.Price,
+			tenantID, input.TeacherID, input.Title, input.Description, input.Price, cover,
 		).Scan(&c.ID, &c.TenantID, &c.TeacherID, &c.Title,
 			&c.Description, &c.CoverImageURL, &c.Price, &c.Status,
 			&c.CreatedAt, &c.UpdatedAt)
@@ -148,6 +185,15 @@ func (r *Repository) Update(ctx context.Context, tenantID, id string, input Upda
 	if input.TeacherID != nil {
 		setClauses = append(setClauses, fmt.Sprintf("teacher_id = $%d", argIdx))
 		args = append(args, *input.TeacherID)
+		argIdx++
+	}
+	if input.CoverImageURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("cover_image_url = $%d", argIdx))
+		if *input.CoverImageURL == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *input.CoverImageURL)
+		}
 		argIdx++
 	}
 
